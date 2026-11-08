@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MyWindows.Domain/MyWindows.Domain.csproj" />
+    <Project Path="src/MyWindows.Application/MyWindows.Application.csproj" />
+    <Project Path="src/MyWindows.Infrastructure/MyWindows.Infrastructure.csproj" />
+    <Project Path="src/MyWindows.Cli/MyWindows.Cli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MyWindows.Tests/MyWindows.Tests.csproj" />
+  </Folder>
+</Solution>

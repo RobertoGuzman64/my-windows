@@ -1,0 +1,13 @@
+<Project>
+  <Target Name="EnforceDomainBoundary" BeforeTargets="ResolveReferences" Condition="'$(MSBuildProjectName)' == 'MyWindows.Domain'">
+    <Error Condition="'@(ProjectReference)' != ''" Text="ARCH001: Domain cannot depend on another project." />
+    <Error Condition="'@(PackageReference)' != ''" Text="ARCH002: Domain cannot depend on third-party packages." />
+  </Target>
+  <Target Name="EnforceApplicationBoundary" BeforeTargets="ResolveReferences" Condition="'$(MSBuildProjectName)' == 'MyWindows.Application'">
+    <ItemGroup>
+      <_ForbiddenApplicationReferences Include="@(ProjectReference)" Exclude="../MyWindows.Domain/MyWindows.Domain.csproj" />
+    </ItemGroup>
+    <Error Condition="'@(_ForbiddenApplicationReferences)' != ''" Text="ARCH003: Application may only reference Domain." />
+    <Error Condition="'@(PackageReference)' != ''" Text="ARCH004: Application cannot depend on third-party packages." />
+  </Target>
+</Project>
