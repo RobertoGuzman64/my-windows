@@ -23,6 +23,20 @@ $runId = '{0}-{1}-{2}' -f (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmss
 $runDirectory = Join-Path $root (Join-Path 'artifacts/quality' $runId)
 $script:testSummary = $null
 $script:completed = 0
+$script:failed = 0
+$script:skipped = 0
+$script:processed = 0
+$continueOnFailure = $Task -eq 'all' -and $Mode -eq 'only'
+$results = @{}
+$dependencies = @{
+    'format-write' = @('restore')
+    'format-check' = @('restore')
+    'debug-build' = @('restore')
+    'tests' = @('debug-build')
+    'release-build' = @('restore')
+    'profiles-validate' = @('release-build')
+    'profiles-resolve' = @('release-build')
+}
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
 $steps = switch ($Task) {
@@ -79,7 +93,7 @@ function Read-TestSummary {
 function Invoke-QualityStep {
     param([string]$Step)
 
-    $number = $script:completed + 1
+    $number = $script:processed + 1
     $log = Join-Path $runDirectory "$Step.log"
     $timer = [System.Diagnostics.Stopwatch]::StartNew()
     Write-Host ('  [{0}/{1}] {2,-20} ' -f $number, $steps.Count, $Step) -NoNewline
@@ -122,12 +136,19 @@ function Invoke-QualityStep {
             Get-Content -LiteralPath $log -Tail 100 | ForEach-Object { Write-Host $_ }
         }
         Write-Host "  Registro completo: $log" -ForegroundColor Yellow
-        throw "Gate '$Step' fallido."
+        $script:failed++
+        $script:processed++
+        if (-not $continueOnFailure) {
+            throw "Gate '$Step' fallido."
+        }
+        return $false
     }
 
     $detail = if ($Step -eq 'tests') { " · $script:testSummary" } else { '' }
     Write-Host ('PASS ({0:n1}s){1}' -f $timer.Elapsed.TotalSeconds, $detail) -ForegroundColor Green
     $script:completed++
+    $script:processed++
+    return $true
 }
 
 Push-Location -LiteralPath $root
@@ -137,7 +158,22 @@ try {
     Write-Host "MYWINDOWS | QUALITY | $($Task.ToUpperInvariant())$(if ($Mode) { ' ONLY' })"
     Write-Host '--------------------------------------------------------------'
     foreach ($step in $steps) {
-        Invoke-QualityStep -Step $step
+        $blocked = @()
+        if ($dependencies.ContainsKey($step)) {
+            $blocked = @($dependencies[$step] | Where-Object { -not $results.ContainsKey($_) -or $results[$_] -ne 'PASS' })
+        }
+        if ($blocked.Count -gt 0) {
+            Write-Host ('  [{0}/{1}] {2,-20} SKIP (depende de: {3})' -f ($script:processed + 1), $steps.Count, $step, ($blocked -join ', ')) -ForegroundColor Yellow
+            $results[$step] = 'SKIP'
+            $script:skipped++
+            $script:processed++
+            continue
+        }
+        $success = Invoke-QualityStep -Step $step
+        $results[$step] = if ($success) { 'PASS' } else { 'FAIL' }
+    }
+    if ($script:failed -gt 0 -or $script:skipped -gt 0) {
+        throw "Validación completada con $($script:failed) gates fallidos y $($script:skipped) omitidos por dependencias."
     }
     $stopwatch.Stop()
     Write-Host '--------------------------------------------------------------'
@@ -147,7 +183,7 @@ try {
 catch {
     $stopwatch.Stop()
     Write-Host '--------------------------------------------------------------'
-    Write-Host ('FAIL | {0}/{1} gates | {2:n1}s' -f $script:completed, $steps.Count, $stopwatch.Elapsed.TotalSeconds) -ForegroundColor Red
+    Write-Host ('FAIL | PASS {0}, FAIL {1}, SKIP {2} / {3} gates | {4:n1}s' -f $script:completed, $script:failed, $script:skipped, $steps.Count, $stopwatch.Elapsed.TotalSeconds) -ForegroundColor Red
     Write-Host "Logs: $runDirectory"
     throw
 }

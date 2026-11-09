@@ -1,9 +1,12 @@
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MyWindows.Application.Files;
+using MyWindows.Application.Media;
 using MyWindows.Application.Operations;
 using MyWindows.Application.Planning;
+using MyWindows.Application.Programs;
 using MyWindows.Application.Repositories;
 using MyWindows.Domain.Modules;
 using MyWindows.Domain.Profiles;
@@ -35,9 +38,29 @@ internal static class Program
                 return RunRepositoryInspect(args[2]);
             }
 
+            if (args.Length >= 3 && args[0] == "repo" && args[1] == "inspect-many")
+            {
+                return RunRepositoryInspectMany(args[2..]);
+            }
+
+            if (args.Length == 3 && args[0] == "repo" && args[1] == "open")
+            {
+                return RunRepositoryOpen(args[2]);
+            }
+
             if (args.Length == 3 && args[0] == "file" && args[1] == "hash")
             {
                 return RunFileHash(args[2]);
+            }
+
+            if (args.Length == 2 && args[0] == "apps" && args[1] == "inventory")
+            {
+                return RunInstalledProgramsInventory();
+            }
+
+            if (args.Length == 3 && args[0] is ("music" or "photos") && args[1] == "inspect")
+            {
+                return RunMediaInventory(args[0] == "music" ? MediaKind.Music : MediaKind.Photos, args[2]);
             }
 
             if (args.Length >= 3 && args[0] is ("plan" or "apply" or "verify" or "status" or "repair" or "remove"))
@@ -45,10 +68,10 @@ internal static class Program
                 return RunAction(args);
             }
 
-            Console.Error.WriteLine("Uso: mywindows profiles <validate|list|resolve> <carpeta> | repo inspect <ruta-repositorio> | file hash <ruta-archivo> | <plan|apply|verify|status|repair|remove> <carpeta-perfiles> <repositorio> [--role <id>]... [--machine <id>]");
+            Console.Error.WriteLine("Uso: mywindows profiles <validate|list|resolve> <carpeta> | repo <inspect|open> <ruta-repositorio> | repo inspect-many <ruta1> [ruta2]... | file hash <ruta-archivo> | apps inventory | <music|photos> inspect <carpeta-local> | <plan|apply|verify|status|repair|remove> <carpeta-perfiles> <repositorio> [--role <id>]... [--machine <id>]");
             return 2;
         }
-        catch (Exception exception) when (exception is ProfileValidationException or ModuleResolutionException or GitInspectionException or FileHashException or OperationCanceledException or IOException or UnauthorizedAccessException or ArgumentException or PlatformNotSupportedException or InvalidOperationException or COMException)
+        catch (Exception exception) when (exception is ProfileValidationException or ModuleResolutionException or GitInspectionException or FileHashException or OperationCanceledException or IOException or UnauthorizedAccessException or ArgumentException or PlatformNotSupportedException or InvalidOperationException or COMException or SecurityException)
         {
             Console.Error.WriteLine($"FAIL: {exception.Message}");
             return 1;
@@ -100,6 +123,22 @@ internal static class Program
         return 0;
     }
 
+    private static int RunRepositoryInspectMany(string[] directories)
+    {
+        RepositoryInventoryService service = new(new RepositorySummaryService(new GitCommandRunner()));
+        IReadOnlyList<RepositoryInspectionEntry> results = service.Inspect(directories);
+        Console.WriteLine(JsonSerializer.Serialize(results, JsonOptions));
+        return results.All(entry => entry.Success) ? 0 : 3;
+    }
+
+    private static int RunRepositoryOpen(string directory)
+    {
+        RepositoryOpenService service = new(new RepositorySummaryService(new GitCommandRunner()), new WindowsRepositoryFolderOpener());
+        string rootPath = service.Open(directory);
+        Console.WriteLine(rootPath);
+        return 0;
+    }
+
     private static int RunFileHash(string path)
     {
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(30));
@@ -107,6 +146,21 @@ internal static class Program
             .ComputeSha256Async(path, timeout.Token).GetAwaiter().GetResult();
         Console.WriteLine(JsonSerializer.Serialize(result, JsonOptions));
         return 0;
+    }
+
+    private static int RunInstalledProgramsInventory()
+    {
+        InstalledProgramInventory inventory = new InstalledProgramInventoryService(new WindowsInstalledProgramSource()).Inspect();
+        Console.WriteLine(JsonSerializer.Serialize(inventory, JsonOptions));
+        return inventory.IsComplete ? 0 : 3;
+    }
+
+    private static int RunMediaInventory(MediaKind kind, string directory)
+    {
+        MediaInventoryService service = new(new LocalMediaFileCatalog(), new FileHashService(new LocalFileReadGateway()));
+        MediaInventoryResult inventory = service.InspectAsync(kind, directory).GetAwaiter().GetResult();
+        Console.WriteLine(JsonSerializer.Serialize(inventory, JsonOptions));
+        return inventory.IsComplete ? 0 : 3;
     }
 
     private static ModuleDefinition[] RegisteredModules() => new[] { RepoShortcutModule.Definition };

@@ -34,6 +34,29 @@ public sealed class ShortcutLifecycleTests
     }
 
     [TestMethod]
+    public void Execute_RepairDoesNotCreateAbsentShortcut()
+    {
+        Gateway gateway = new(ShortcutOwnership.Absent);
+        ShortcutOperationResult result = Run(ShortcutCommand.Repair, gateway);
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(ShortcutOwnership.Absent, result.Ownership);
+        Assert.AreEqual(0, gateway.Created);
+        Assert.AreEqual(0, gateway.Repaired);
+    }
+
+    [TestMethod]
+    public void Execute_ApplyDoesNotSucceedIfRepositoryDisappears()
+    {
+        Gateway gateway = new(ShortcutOwnership.Absent) { RepositoryDisappearsOnCreate = true };
+        ShortcutOperationResult result = Run(ShortcutCommand.Apply, gateway);
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(ShortcutOwnership.Owned, result.Ownership);
+        Assert.AreEqual(1, gateway.Created);
+    }
+
+    [TestMethod]
     public void Execute_NeverRemovesForeignOrModifiedResource()
     {
         foreach (ShortcutOwnership ownership in new[] { ShortcutOwnership.Foreign, ShortcutOwnership.Modified, ShortcutOwnership.Invalid })
@@ -71,10 +94,12 @@ public sealed class ShortcutLifecycleTests
         public int Created { get; private set; }
         public int Repaired { get; private set; }
         public int Removed { get; private set; }
+        public bool RepositoryDisappearsOnCreate { get; init; }
+        private bool RepositoryExists { get; set; } = true;
 
         public ShortcutObservation Inspect(string repositoryPath)
         {
-            return new ShortcutObservation(repositoryPath, true, @"C:\programs", true,
+            return new ShortcutObservation(repositoryPath, RepositoryExists, @"C:\programs", true,
                 @"C:\programs\shortcut.lnk", State is ShortcutOwnership.Owned or ShortcutOwnership.Foreign or ShortcutOwnership.Modified,
                 State);
         }
@@ -83,6 +108,10 @@ public sealed class ShortcutLifecycleTests
         {
             Created++;
             State = ShortcutOwnership.Owned;
+            if (RepositoryDisappearsOnCreate)
+            {
+                RepositoryExists = false;
+            }
         }
 
         public void Repair(string repositoryPath)

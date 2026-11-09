@@ -33,10 +33,10 @@ public static class ShortcutLifecycle
 
         if (command == ShortcutCommand.Verify)
         {
-            bool verified = ownership == ShortcutOwnership.Owned && before.RepositoryExists;
+            bool verifiedBefore = ownership == ShortcutOwnership.Owned && before.RepositoryExists;
             return new ShortcutOperationResult("verify", ownership,
-                verified ? "Acceso propio íntegro; destino presente y comprobado." : "No se cumplen las postcondiciones de verificación.",
-                verified, plan);
+                verifiedBefore ? "Acceso propio íntegro; destino presente y comprobado." : "No se cumplen las postcondiciones de verificación.",
+                verifiedBefore, plan);
         }
 
         if (command == ShortcutCommand.Remove)
@@ -66,6 +66,11 @@ public static class ShortcutLifecycle
         PlanOperation operation = plan.Resources[0].Operation;
         if (operation == PlanOperation.Create)
         {
+            if (command != ShortcutCommand.Apply)
+            {
+                return Result("repair", ownership, "No existe un acceso propio que reparar; usar apply explícitamente.", false, plan);
+            }
+
             gateway.Create(repositoryPath);
         }
         else if (operation == PlanOperation.Repair)
@@ -78,10 +83,12 @@ public static class ShortcutLifecycle
             gateway.Repair(repositoryPath);
         }
 
-        ShortcutOwnership after = gateway.Inspect(repositoryPath).Ownership;
+        ShortcutObservation afterObservation = gateway.Inspect(repositoryPath);
+        ShortcutOwnership after = afterObservation.Ownership;
+        bool verified = after == ShortcutOwnership.Owned && afterObservation.RepositoryExists;
         return Result(command.ToString().ToLowerInvariant(), after,
-            after == ShortcutOwnership.Owned ? operation == PlanOperation.NoChange ? "Sin cambios (idempotente)." : "Postcondiciones comprobadas." : "La operación no alcanzó el estado esperado.",
-            after == ShortcutOwnership.Owned, plan);
+            verified ? operation == PlanOperation.NoChange ? "Sin cambios (idempotente)." : "Postcondiciones comprobadas." : "La operación no alcanzó el estado esperado.",
+            verified, plan);
     }
 
     private static ShortcutOperationResult Result(string command, ShortcutOwnership ownership, string outcome, bool success, PlanResult plan)

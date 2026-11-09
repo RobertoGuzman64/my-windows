@@ -16,6 +16,7 @@ if ($env:OS -ne 'Windows_NT') {
     throw 'Este adaptador requiere el Programador de tareas de Windows.'
 }
 Import-Module ScheduledTasks -ErrorAction Stop
+. (Join-Path $PSScriptRoot 'Test-TaskDefinition.ps1')
 
 $taskName = 'MyWindows.RepoInspection'
 $managedRoot = Join-Path $env:LOCALAPPDATA 'MyWindows\automations\repo-inspect'
@@ -83,13 +84,7 @@ function Get-Ownership {
         return 'BlockedPartial'
     }
     [xml]$xml = Export-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop
-    $taskInfo = $xml.Task
-    $executions = @($taskInfo.Actions.Exec)
-    if ($executions.Count -ne 1 -or $null -eq $executions[0] -or
-        [string]$taskInfo.RegistrationInfo.Description -cne [string]$Receipt.description -or
-        [string]$executions[0].Command -ine [string]$Receipt.execute -or
-        [string]$executions[0].Arguments -cne [string]$Receipt.arguments -or
-        [string]$taskInfo.Principals.Principal.UserId -ine [string]$Receipt.ownerSid) {
+    if (-not (Test-TaskDefinition -Definition $xml -Receipt $Receipt)) {
         return 'BlockedForeignOrModified'
     }
     return 'Owned'

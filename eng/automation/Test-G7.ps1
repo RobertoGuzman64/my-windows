@@ -18,11 +18,16 @@ $taskName = 'MyWindows.RepoInspection'
 $receipt = Join-Path $env:LOCALAPPDATA 'MyWindows\automations\repo-inspect\active.json'
 $repo = (Resolve-Path -LiteralPath $RepositoryPath -ErrorAction Stop).Path
 $consent = 'ACEPTO_AUTOMATIZACION_LOCAL'
-foreach ($scriptPath in @($manager, (Join-Path $PSScriptRoot 'Invoke-RepoInspection.ps1'), $PSCommandPath)) {
+foreach ($scriptPath in @($manager, (Join-Path $PSScriptRoot 'Invoke-RepoInspection.ps1'), (Join-Path $PSScriptRoot 'Test-TaskDefinition.ps1'), (Join-Path $PSScriptRoot 'Test-TaskDefinitionCases.ps1'), $PSCommandPath)) {
     $tokens = $null
     $parseErrors = $null
     [void][Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$tokens, [ref]$parseErrors)
     if ($parseErrors.Count -ne 0) { throw "La sintaxis PowerShell no es válida: $scriptPath" }
+}
+
+$contract = & (Join-Path $PSScriptRoot 'Test-TaskDefinitionCases.ps1') | ConvertFrom-Json
+if ($contract.result -ne 'PASS' -or $contract.checks -lt 10) {
+    throw 'Las pruebas negativas del contrato de tareas no han superado la comprobación.'
 }
 
 if ($null -ne (Get-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction SilentlyContinue) -or
@@ -97,7 +102,7 @@ try {
     [pscustomobject]@{
         result = 'PARTIAL'
         gate = 'G7'
-        executed = @('parse-powershell', 'plan-no-effects', 'reject-no-consent', 'install', 'second-install-idempotent', 'status', 'run-now', 'report', 'disable', 'enable', 'update-time', 'remove')
+        executed = @('parse-powershell', 'task-definition-regressions', 'plan-no-effects', 'reject-no-consent', 'install', 'second-install-idempotent', 'status', 'run-now', 'report', 'disable', 'enable', 'update-time', 'remove')
         pending = @('foreign-task-collision', 'invalid-receipt', 'permissions', 'restart-during-run', 'clean-VM-restore', 'two-PC', 'CI-same-commit', 'manual-review')
     } | ConvertTo-Json -Depth 5
 }
